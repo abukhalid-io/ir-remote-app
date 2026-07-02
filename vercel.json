@@ -1,0 +1,24 @@
+{
+  "rewrites": [
+    { "source": "/ir_db/:path*", "destination": "/ir_db/:path*" },
+    { "source": "/flipper_irdb/:path*", "destination": "/flipper_irdb/:path*" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/ir_db/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=86400" },
+        { "key": "Access-Control-Allow-Origin", "value": "*" }
+      ]
+    },
+    {
+      "source": "/flipper_irdb/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=86400" },
+        { "key": "Content-Type", "value": "text/plain; charset=utf-8" },
+        { "key": "Access-Control-Allow-Origin", "value": "*" }
+      ]
+    }
+  ]
+}
