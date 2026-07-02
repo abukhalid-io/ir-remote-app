@@ -35,8 +35,6 @@
 #include <BLEServer.h>
 #include <BLEUtils.h>
 #include <BLE2902.h>
-#include "esp_bt.h"
-#include "esp_gap_ble_api.h"
 #include <LittleFS.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -467,8 +465,7 @@ void setup() {
   pService->start();
 
   // Set TX power maksimum supaya sinyal BLE lebih kuat
-  esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_ADV, ESP_PWR_LVL_P9);
-  esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_DEFAULT, ESP_PWR_LVL_P9);
+  BLEDevice::setPower(ESP_PWR_LVL_P9);
 
   BLEAdvertising* pAdv = BLEDevice::getAdvertising();
   pAdv->addServiceUUID(NUS_SERVICE_UUID);

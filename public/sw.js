@@ -1,5 +1,5 @@
 // ── Service Worker — IR Remote PWA ──────────────────────────
-const CACHE_NAME = 'ir-remote-v1';
+const CACHE_NAME = 'ir-remote-v4';
 const CACHE_IRDB = 'ir-remote-irdb-v1';
 
 // Asset inti yang di-cache saat install
@@ -11,7 +11,7 @@ const CORE_ASSETS = [
   '/icon-512.png',
   '/ir_db/meta.json',
   '/ir_db/index.json',
-  'https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css',
+  'https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.44.0/tabler-icons.min.css',
 ];
 
 // ── Install: cache asset inti ────────────────────────────────
