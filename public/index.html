@@ -455,7 +455,23 @@ function onBleRx(e){
 
 // ─── Database ─────────────────────────────────────────────────
 let meta=null,curCat=null;
-const CAT_ICONS={TVs:'📺',ACs:'❄️',Fans:'💨',Speakers:'🔊',SoundBars:'🎵',Projectors:'📽️',Audio_and_Video_Receivers:'📻',Streaming_Devices:'📡',DVD_Players:'💿','Blu-Ray':'💿',Cable_Boxes:'📦',Cameras:'📷',Consoles:'🎮',LED_Lighting:'💡',Heaters:'🔥',Miscellaneous:'🔧',Monitors:'🖥️',Multimedia:'🎬',Computers:'💻',Air_Purifiers:'🌬️',Humidifiers:'💧',Vacuum_Cleaners:'🧹',Toys:'🧸',VCR:'📼',CD_Players:'💿',Fireplaces:'🔥',default:'📱'};
+const CAT_ICONS={
+  TVs:'📺',ACs:'❄️',Fans:'💨',Speakers:'🔊',SoundBars:'🎵',
+  Projectors:'📽️',Audio_and_Video_Receivers:'📻',Streaming_Devices:'📡',
+  DVD_Players:'💿','Blu-Ray':'💿',Cable_Boxes:'📦',Cameras:'📷',
+  Consoles:'🎮',LED_Lighting:'💡',Heaters:'🔥',Miscellaneous:'🔧',
+  Monitors:'🖥️',Multimedia:'🎬',Computers:'💻',Air_Purifiers:'🌬️',
+  Humidifiers:'💧',Vacuum_Cleaners:'🧹',Toys:'🧸',VCR:'📼',
+  CD_Players:'💿',Fireplaces:'🔥',
+  // kategori baru dari database
+  Bidet:'🚿',CCTV:'🎥',Clocks:'🕐',Converters:'🔄',
+  'DVB-T':'📡',Digital_Signs:'🖥️',Dust_Collectors:'🌀',
+  Head_Units:'🚗',KVM:'🖱️',Laserdisc:'💿',MiniDisc:'💿',
+  Picture_Frames:'🖼️',Car_Multimedia:'🚗',
+  Videoconferencing:'📹',Whiteboards:'📋',Window_cleaners:'🪟',
+  'Handicap_Ceiling_Lifts':'♿',
+  default:'📱'
+};
 
 async function loadMeta(){
   try{const r=await fetch('ir_db/meta.json');meta=await r.json();renderCats();}
@@ -930,6 +946,15 @@ function toast(msg){const el=document.getElementById('toast');el.textContent=msg
 
 // ─── Init ─────────────────────────────────────────────────────
 // (loadMeta dan renderSaved dipanggil setelah BLE connected di onBleConnected)
+
+// ─── Service Worker ───────────────────────────────────────────
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('/sw.js')
+      .then(r=>console.log('[SW] Registered, scope:',r.scope))
+      .catch(e=>console.warn('[SW] Register failed:',e));
+  });
+}
 </script>
 </body>
 </html>
