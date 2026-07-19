@@ -17,13 +17,21 @@
  *
  *  Command dari web app → ESP32-C6 (via BLE RX):
  *    {"cmd":"capture","name":"TV_Power"}
- *    {"cmd":"replay","timings":[...]}   ← timings dari DB atau hasil capture
+ *    {"cmd":"replay","timings":[...]}      ← timings dari DB atau hasil capture
  *    {"cmd":"status"}
+ *    {"cmd":"test_sensor"}               ← test TSOP1838: tunggu sinyal remote 5 detik
+ *    {"cmd":"test_led"}                  ← test IR LED: nyalakan ~2 detik (cek kamera HP)
+ *    {"cmd":"test_loop"}                 ← test loopback TX→RX
+ *    {"cmd":"set_freq","hz":38000}       ← ganti frekuensi carrier (30000-60000 Hz)
  *
  *  Response ESP32-C6 → web app (via BLE TX):
  *    {"event":"captured","name":"TV_Power","timings":[...]}
  *    {"event":"done","msg":"replay selesai"}
  *    {"event":"status","capturing":false,"replaying":false}
+ *    {"event":"freq_set","hz":38000,"msg":"Carrier 38 kHz OK"}
+ *    {"event":"test_led","status":"start",...} / {"event":"test_led","ok":true,...}
+ *    {"event":"test_sensor","ok":true,"count":42,"preview":[...]}
+ *    {"event":"test_loop","ok":true,"symbols":5,"msg":"..."}
  *    {"event":"error","msg":"..."}
  *
  *  Library: built-in Arduino ESP32 3.x (BLE + RMT)
@@ -49,14 +57,20 @@
 #define PIN_LED            15           // GPIO15 USER LED (LOW=ON)
 
 // ── Timing ──────────────────────────────────────────────────
-#define REPLAY_DURATION_MS  2000        // kirim berulang 2 detik
-#define CAPTURE_TIMEOUT_MS  5000        // timeout capture 5 detik
+// FIX BUG E: dulu replay dikirim berulang selama 2 detik penuh (~15-20x per
+// tap), bikin tombol toggle (power) & step (channel/volume) nyasar. Sekarang
+// jumlah kirim per tap dibatasi tetap, meniru satu kali tekan remote asli.
+#define REPLAY_REPEAT_COUNT   2          // jumlah kirim per 1 tap tombol
+#define REPLAY_REPEAT_GAP_MS  40         // jeda antar pengiriman ulang
+#define CAPTURE_TIMEOUT_MS    5000       // timeout capture 5 detik
 
 // ── RMT ─────────────────────────────────────────────────────
 #define RMT_RESOLUTION_HZ   1000000UL  // 1µs per tick
 #define IR_CARRIER_HZ       38000
-#define MAX_RMT_SYMBOLS     64
-#define MAX_TIMINGS         300         // max timing per sinyal
+// FIX BUG F: 64 simbol (128 pulsa) kekecilan untuk sinyal AC panjang (Daikin/
+// Mitsubishi/Fujitsu bisa 150-400+ pulsa) — dinaikkan supaya tidak terpotong.
+#define MAX_RMT_SYMBOLS     200
+#define MAX_TIMINGS         400         // max timing per sinyal (selaras dgn MAX_RMT_SYMBOLS)
 
 // ── BLE Nordic UART Service (NUS) ───────────────────────────
 #define NUS_SERVICE_UUID        "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
@@ -68,6 +82,17 @@ BLEServer*          pServer     = nullptr;
 BLECharacteristic*  pTxChar     = nullptr;
 bool                bleConnected = false;
 static String       rxBuffer    = "";   // FIX BUG 2: akumulasi chunks BLE
+
+// FIX BUG H: notify() sebaiknya tidak dipanggil langsung dari dalam callback
+// GATT write (onWrite) — bisa bentrok dgn task BLE host di beberapa versi stack
+// Bluedroid/NimBLE-Arduino. Antrikan pesan di sini, kirim betulan dari loop().
+static String        g_pending_notify      = "";
+static volatile bool g_pending_notify_flag = false;
+
+void queue_notify(const String& msg) {
+  g_pending_notify      = msg;
+  g_pending_notify_flag = true;
+}
 
 // ── RMT Handles ─────────────────────────────────────────────
 static rmt_channel_handle_t  rx_chan  = NULL;
@@ -96,6 +121,13 @@ static uint16_t g_replay_buf[MAX_TIMINGS];
 static int      g_replay_count  = 0;
 static bool     g_replay_pending = false;
 
+// ── Test / Diagnostic command state ──────────────────────────
+volatile bool     g_test_led_pending    = false;
+volatile bool     g_test_sensor_pending = false;
+volatile bool     g_test_loop_pending   = false;
+volatile uint32_t g_set_freq_hz         = 0;   // 0 = tidak ada perubahan
+static   uint32_t g_carrier_hz          = IR_CARRIER_HZ;
+
 // ─────────────────────────────────────────────────────────────
 //  BLE Send helper
 // ─────────────────────────────────────────────────────────────
@@ -119,11 +151,15 @@ class ServerCallbacks : public BLEServerCallbacks {
   }
   void onDisconnect(BLEServer* s) override {
     bleConnected = false;
-    rxBuffer        = "";     // FIX BUG 2: bersihkan buffer saat disconnect
-    g_capturing     = false;  // reset state
-    g_replaying     = false;  // reset jika disconnect saat replay berlangsung
-    g_replay_pending= false;
-    rmt_rx_active   = false;
+    rxBuffer              = "";     // FIX BUG 2: bersihkan buffer saat disconnect
+    g_capturing           = false;  // reset state
+    g_replaying           = false;  // reset jika disconnect saat replay berlangsung
+    g_replay_pending      = false;
+    rmt_rx_active         = false;
+    g_test_led_pending    = false;
+    g_test_sensor_pending = false;
+    g_test_loop_pending   = false;
+    g_set_freq_hz         = 0;
     Serial.println("[BLE] Client disconnected, restart advertising...");
     BLEDevice::startAdvertising();
   }
@@ -162,18 +198,27 @@ String json_get(const String& json, const String& key) {
   return json.substring(idx, end);
 }
 
-// Parse array "[500,600,...]" → timings buffer, returns count
-int parse_timings(const String& arr, uint16_t* buf, int maxn) {
+// Parse array "[500,600,...]" → timings buffer, returns count.
+// FIX BUG G: dulu berhenti diam-diam kalau data > maxn (sinyal AC panjang dari
+// DB Flipper terpotong tanpa pemberitahuan). Sekarang tetap scan sampai akhir
+// array dan set *truncated=true kalau ada data yang tidak muat, biar caller
+// bisa warn user alih-alih replay diam-diam salah/tidak lengkap.
+int parse_timings(const String& arr, uint16_t* buf, int maxn, bool* truncated) {
   int n = 0;
   int i = arr.indexOf('[');
   if (i < 0) return 0;
   i++;
-  while (i < (int)arr.length() && n < maxn) {
+  if (truncated) *truncated = false;
+  while (i < (int)arr.length()) {
     while (i < (int)arr.length() && (arr[i] == ' ' || arr[i] == ',')) i++;
-    if (arr[i] == ']') break;
+    if (i >= (int)arr.length() || arr[i] == ']') break;
     int end = i;
     while (end < (int)arr.length() && arr[end] != ',' && arr[end] != ']') end++;
-    buf[n++] = (uint16_t)arr.substring(i, end).toInt();
+    if (n < maxn) {
+      buf[n++] = (uint16_t)arr.substring(i, end).toInt();
+    } else if (truncated) {
+      *truncated = true;
+    }
     i = end;
   }
   return n;
@@ -184,19 +229,24 @@ int parse_timings(const String& arr, uint16_t* buf, int maxn) {
 //  TSOP active-LOW: level=0 saat burst, level=1 saat idle
 //  Simpan level di bit-15: 0=burst, 1=space; durasi di [14:0]
 // ─────────────────────────────────────────────────────────────
-int capture_process(const rmt_rx_done_event_data_t& ev, uint16_t* timings, int maxn) {
+int capture_process(const rmt_rx_done_event_data_t& ev, uint16_t* timings, int maxn, bool* truncated) {
   int count = 0;
-  for (size_t i = 0; i < ev.num_symbols && count < maxn - 2; i++) {
+  if (truncated) *truncated = false;
+  for (size_t i = 0; i < ev.num_symbols; i++) {
     const rmt_symbol_word_t& s = ev.received_symbols[i];
     if (s.duration0 > 0) {
-      uint16_t t = (uint16_t)(s.duration0 & 0x7FFF);
-      if (s.level0 == 1) t |= 0x8000;
-      timings[count++] = t;
+      if (count < maxn) {
+        uint16_t t = (uint16_t)(s.duration0 & 0x7FFF);
+        if (s.level0 == 1) t |= 0x8000;
+        timings[count++] = t;
+      } else if (truncated) *truncated = true;
     }
     if (s.duration1 > 0) {
-      uint16_t t = (uint16_t)(s.duration1 & 0x7FFF);
-      if (s.level1 == 1) t |= 0x8000;
-      timings[count++] = t;
+      if (count < maxn) {
+        uint16_t t = (uint16_t)(s.duration1 & 0x7FFF);
+        if (s.level1 == 1) t |= 0x8000;
+        timings[count++] = t;
+      } else if (truncated) *truncated = true;
     }
   }
   // Strip leading spaces (TSOP idle sebelum burst pertama)
@@ -210,7 +260,7 @@ int capture_process(const rmt_rx_done_event_data_t& ev, uint16_t* timings, int m
 }
 
 // ─────────────────────────────────────────────────────────────
-//  Signal Replay — kirim berulang selama REPLAY_DURATION_MS
+//  Signal Replay — kirim REPLAY_REPEAT_COUNT kali (bukan time-based)
 // ─────────────────────────────────────────────────────────────
 void signal_replay(uint16_t* timings, int count) {
   if (count < 2) {
@@ -246,16 +296,18 @@ void signal_replay(uint16_t* timings, int count) {
   g_replaying = true;
   digitalWrite(PIN_LED, LOW);  // LED solid ON selama replay
 
-  unsigned long replayEnd = millis() + REPLAY_DURATION_MS;
+  // FIX BUG E: kirim jumlah tetap (bukan time-based) — 1 tap tombol web = 1
+  // "tekan", bukan tombol ditahan. REPLAY_REPEAT_COUNT kecil tapi >1 untuk
+  // keandalan penerimaan, tanpa membuat toggle/step code nyasar berkali-kali.
   int sent = 0;
-  do {
+  for (int i = 0; i < REPLAY_REPEAT_COUNT; i++) {
     esp_err_t err = rmt_transmit(tx_chan, copy_enc,
                                  syms, n * sizeof(rmt_symbol_word_t), &tcfg);
     if (err != ESP_OK) break;
     rmt_tx_wait_all_done(tx_chan, 500);
     sent++;
-    delay(40);
-  } while (millis() < replayEnd);
+    if (i < REPLAY_REPEAT_COUNT - 1) delay(REPLAY_REPEAT_GAP_MS);
+  }
 
   g_replaying = false;
   g_led_phase = 0;
@@ -302,7 +354,7 @@ class RxCallbacks : public BLECharacteristicCallbacks {
 
     if (cmd == "capture") {
       if (g_capturing || g_replaying || g_replay_pending) {
-        ble_send("{\"event\":\"error\",\"msg\":\"busy\"}");
+        queue_notify("{\"event\":\"error\",\"msg\":\"busy\"}");
         return;
       }
       g_pending_name  = json_get(val, "name");
@@ -313,20 +365,25 @@ class RxCallbacks : public BLECharacteristicCallbacks {
       g_led_phase     = 0;
       g_led_timer     = millis();
       Serial.printf("[CAP] Mulai capture: %s\n", g_pending_name.c_str());
-      ble_send("{\"event\":\"capturing\",\"name\":\"" + g_pending_name + "\"}");
+      queue_notify("{\"event\":\"capturing\",\"name\":\"" + g_pending_name + "\"}");
     }
 
     else if (cmd == "replay") {
       if (g_capturing || g_replaying || g_replay_pending) {
-        ble_send("{\"event\":\"error\",\"msg\":\"busy\"}");
+        queue_notify("{\"event\":\"error\",\"msg\":\"busy\"}");
         return;
       }
       String arr = json_get(val, "timings");
       // FIX BUG B: simpan ke buffer global, eksekusi di loop()
-      int cnt = parse_timings(arr, g_replay_buf, MAX_TIMINGS);
+      bool arr_truncated = false;
+      int cnt = parse_timings(arr, g_replay_buf, MAX_TIMINGS, &arr_truncated);
       if (cnt < 4) {
-        ble_send("{\"event\":\"error\",\"msg\":\"timings invalid\"}");
+        queue_notify("{\"event\":\"error\",\"msg\":\"timings invalid\"}");
         return;
+      }
+      if (arr_truncated) {
+        // FIX BUG G: kasih tahu user kalau sinyal dipotong (device limit), bukan diam-diam
+        queue_notify("{\"event\":\"warning\",\"msg\":\"sinyal terpotong ke " + String(MAX_TIMINGS) + " timing (device limit)\"}");
       }
       g_replay_count   = cnt;
       g_replay_pending = true;  // loop() akan eksekusi replay
@@ -338,14 +395,215 @@ class RxCallbacks : public BLECharacteristicCallbacks {
       s += ",\"replaying\":";
       s += g_replaying ? "true" : "false";
       s += ",\"ble\":true}";
-      ble_send(s);
+      queue_notify(s);
+    }
+
+    else if (cmd == "test_led") {
+      if (g_capturing || g_replaying || g_replay_pending ||
+          g_test_led_pending || g_test_sensor_pending || g_test_loop_pending) {
+        queue_notify("{\"event\":\"error\",\"msg\":\"busy\"}"); return;
+      }
+      g_test_led_pending = true;
+    }
+
+    else if (cmd == "test_sensor") {
+      if (g_capturing || g_replaying || g_replay_pending ||
+          g_test_led_pending || g_test_sensor_pending || g_test_loop_pending) {
+        queue_notify("{\"event\":\"error\",\"msg\":\"busy\"}"); return;
+      }
+      g_test_sensor_pending = true;
+    }
+
+    else if (cmd == "test_loop") {
+      if (g_capturing || g_replaying || g_replay_pending ||
+          g_test_led_pending || g_test_sensor_pending || g_test_loop_pending) {
+        queue_notify("{\"event\":\"error\",\"msg\":\"busy\"}"); return;
+      }
+      g_test_loop_pending = true;
+    }
+
+    else if (cmd == "set_freq") {
+      String hz_str = json_get(val, "hz");
+      if (hz_str.length() > 0) {
+        uint32_t hz = (uint32_t)hz_str.toInt();
+        if (hz >= 30000 && hz <= 60000) g_set_freq_hz = hz;
+        else queue_notify("{\"event\":\"error\",\"msg\":\"frekuensi tidak valid (30-60 kHz)\"}");
+      }
     }
 
     else {
-      ble_send("{\"event\":\"error\",\"msg\":\"unknown cmd\"}");
+      queue_notify("{\"event\":\"error\",\"msg\":\"unknown cmd\"}");
     }
   }
 };
+
+// ─────────────────────────────────────────────────────────────
+//  cmd_set_freq — ganti frekuensi carrier IR TX
+// ─────────────────────────────────────────────────────────────
+void cmd_set_freq(uint32_t hz) {
+  Serial.printf("[FREQ] Set carrier → %lu Hz\n", hz);
+  rmt_disable(tx_chan);
+  rmt_carrier_config_t carrier = {};
+  carrier.frequency_hz = hz;
+  carrier.duty_cycle   = 0.33f;
+  esp_err_t err = rmt_apply_carrier(tx_chan, &carrier);
+  rmt_enable(tx_chan);
+  if (err == ESP_OK) {
+    g_carrier_hz = hz;
+    ble_send("{\"event\":\"freq_set\",\"hz\":" + String(hz) + ",\"msg\":\"Carrier " + String(hz / 1000) + " kHz OK\"}");
+  } else {
+    ble_send("{\"event\":\"error\",\"msg\":\"set_freq gagal\"}");
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+//  cmd_test_led — nyalakan IR LED ~2 detik untuk cek kamera HP
+// ─────────────────────────────────────────────────────────────
+void cmd_test_led() {
+  ble_send("{\"event\":\"test_led\",\"status\":\"start\",\"msg\":\"LED menyala ~2 detik, arahkan kamera ke LED\"}");
+  Serial.println("[TEST] LED: start");
+  digitalWrite(PIN_LED, LOW);  // LED onboard ON selama test
+
+  // 47 simbol × {level0=1,32767µs, level1=1,32767µs} ≈ 3 detik carrier terus-menerus
+  static rmt_symbol_word_t syms[48];
+  for (int i = 0; i < 47; i++) {
+    syms[i].level0 = 1; syms[i].duration0 = 32767;
+    syms[i].level1 = 1; syms[i].duration1 = 32767;
+  }
+  syms[47].val = 0;  // terminator
+
+  rmt_transmit_config_t tcfg = {};
+  esp_err_t err = rmt_transmit(tx_chan, copy_enc, syms, 47 * sizeof(rmt_symbol_word_t), &tcfg);
+  if (err == ESP_OK) {
+    rmt_tx_wait_all_done(tx_chan, 4000);
+    ble_send("{\"event\":\"test_led\",\"ok\":true,\"msg\":\"Selesai. Kamera HP harus terlihat cahaya ungu/putih di ujung LED\"}");
+  } else {
+    ble_send("{\"event\":\"test_led\",\"ok\":false,\"msg\":\"RMT TX error\"}");
+  }
+  digitalWrite(PIN_LED, HIGH);
+  g_led_timer = millis(); g_led_phase = 0;
+  Serial.println("[TEST] LED: done");
+}
+
+// ─────────────────────────────────────────────────────────────
+//  cmd_test_sensor — tunggu sinyal IR dari remote selama 5 detik
+// ─────────────────────────────────────────────────────────────
+void cmd_test_sensor() {
+  ble_send("{\"event\":\"test_sensor\",\"status\":\"start\",\"msg\":\"Menunggu sinyal... tekan tombol remote ke sensor (5 detik)\"}");
+  Serial.println("[TEST] Sensor: listening 5s...");
+
+  xQueueReset(rx_queue);
+  rmt_receive_config_t rcfg = {};
+  rcfg.signal_range_min_ns = 1000;
+  rcfg.signal_range_max_ns = 15000000;
+  esp_err_t err = rmt_receive(rx_chan, rx_buf, sizeof(rx_buf), &rcfg);
+  if (err != ESP_OK) {
+    ble_send("{\"event\":\"test_sensor\",\"ok\":false,\"msg\":\"RMT RX error\"}");
+    return;
+  }
+  rmt_rx_active = true;
+
+  // FIX BUG I: dulu blocking penuh 5 detik bikin LED heartbeat "freeze" (device
+  // kelihatan hang). Polling per 50ms + led_update() supaya tetap berkedip.
+  rmt_rx_done_event_data_t ev;
+  bool got = false;
+  unsigned long waitStart = millis();
+  while (millis() - waitStart < 5000) {
+    if (xQueueReceive(rx_queue, &ev, pdMS_TO_TICKS(50)) == pdTRUE) { got = true; break; }
+    led_update();
+  }
+  rmt_rx_active = false;
+
+  if (!got) {
+    Serial.println("[TEST] Sensor: timeout (no signal)");
+    ble_send("{\"event\":\"test_sensor\",\"ok\":false,\"msg\":\"Tidak ada sinyal. Cek wiring: TSOP OUT\\u2192D2, Vcc\\u21923V3, GND\\u2192GND\"}");
+    return;
+  }
+
+  static uint16_t tmp[MAX_TIMINGS];
+  int count = capture_process(ev, tmp, MAX_TIMINGS, nullptr);
+  Serial.printf("[TEST] Sensor: %d pulses (%d symbols)\n", count, (int)ev.num_symbols);
+
+  if (count < 4) {
+    ble_send("{\"event\":\"test_sensor\",\"ok\":false,\"msg\":\"Sinyal terlalu pendek (" + String(count) + " pulses)\"}");
+    return;
+  }
+
+  // Kirim preview (12 pulse pertama) untuk ditampilkan sebagai waveform
+  String msg = "{\"event\":\"test_sensor\",\"ok\":true,\"count\":" + String(count);
+  msg += ",\"msg\":\"Sensor OK! " + String(count) + " pulses diterima\",\"preview\":[";
+  int n = count < 12 ? count : 12;
+  for (int i = 0; i < n; i++) {
+    if (i) msg += ",";
+    bool isSpace = (tmp[i] & 0x8000) != 0;
+    uint16_t dur = tmp[i] & 0x7FFF;
+    msg += "{\"d\":" + String(dur) + ",\"s\":" + (isSpace ? "1" : "0") + "}";
+  }
+  msg += "]}";
+  ble_send(msg);
+}
+
+// ─────────────────────────────────────────────────────────────
+//  cmd_test_loop — kirim burst IR lewat TX, cek apakah RX terima
+// ─────────────────────────────────────────────────────────────
+void cmd_test_loop() {
+  ble_send("{\"event\":\"test_loop\",\"status\":\"start\",\"msg\":\"Mengirim burst IR...\"}");
+  Serial.println("[TEST] Loopback: TX->RX");
+
+  // Aktifkan RX terlebih dahulu
+  xQueueReset(rx_queue);
+  rmt_receive_config_t rcfg = {};
+  rcfg.signal_range_min_ns = 1000;
+  rcfg.signal_range_max_ns = 15000000;
+  esp_err_t rx_err = rmt_receive(rx_chan, rx_buf, sizeof(rx_buf), &rcfg);
+  if (rx_err != ESP_OK) {
+    ble_send("{\"event\":\"test_loop\",\"ok\":false,\"msg\":\"RMT RX error\"}");
+    return;
+  }
+  rmt_rx_active = true;
+
+  // Kirim burst NEC-like: AGC 9ms + 4.5ms space + 5 × 560µs pair + trailing 560µs
+  static rmt_symbol_word_t test_syms[8];
+  test_syms[0].level0 = 1; test_syms[0].duration0 = 9000;  // AGC burst
+  test_syms[0].level1 = 0; test_syms[0].duration1 = 4500;  // AGC space
+  for (int i = 1; i <= 5; i++) {
+    test_syms[i].level0 = 1; test_syms[i].duration0 = 560;
+    test_syms[i].level1 = 0; test_syms[i].duration1 = 560;
+  }
+  test_syms[6].level0 = 1; test_syms[6].duration0 = 560;   // trailing mark
+  test_syms[6].level1 = 0; test_syms[6].duration1 = 0;
+  test_syms[7].val = 0;  // terminator
+
+  rmt_transmit_config_t tcfg = {};
+  esp_err_t tx_err = rmt_transmit(tx_chan, copy_enc, test_syms, 8 * sizeof(rmt_symbol_word_t), &tcfg);
+  if (tx_err != ESP_OK) {
+    rmt_rx_active = false;
+    ble_send("{\"event\":\"test_loop\",\"ok\":false,\"msg\":\"RMT TX error\"}");
+    return;
+  }
+  rmt_tx_wait_all_done(tx_chan, 300);
+
+  // Tunggu hasil dari RX (300ms timeout, polling supaya LED tetap update)
+  rmt_rx_done_event_data_t ev;
+  bool got = false;
+  unsigned long loopWaitStart = millis();
+  while (millis() - loopWaitStart < 300) {
+    if (xQueueReceive(rx_queue, &ev, pdMS_TO_TICKS(20)) == pdTRUE) { got = true; break; }
+    led_update();
+  }
+  rmt_rx_active = false;
+
+  if (!got || ev.num_symbols == 0) {
+    Serial.println("[TEST] Loopback: FAIL (no RX)");
+    ble_send("{\"event\":\"test_loop\",\"ok\":false,\"msg\":\"Loopback GAGAL. Cek: LED arah D0, sensor arah D2, LED fisik menghadap TSOP1838\"}");
+    return;
+  }
+
+  uint32_t d0 = ev.received_symbols[0].duration0;
+  Serial.printf("[TEST] Loopback: OK, %d symbols, first=%lu us\n", (int)ev.num_symbols, d0);
+  ble_send("{\"event\":\"test_loop\",\"ok\":true,\"symbols\":" + String(ev.num_symbols) +
+           ",\"msg\":\"Loopback OK! LED & sensor berfungsi (burst " + String(d0) + "us terdeteksi)\"}");
+}
 
 // ─────────────────────────────────────────────────────────────
 //  LED State Machine
@@ -484,11 +742,34 @@ void setup() {
 void loop() {
   led_update();
 
+  // FIX BUG H: kirim notifikasi yang diantrikan dari onWrite() (GATT write context)
+  if (g_pending_notify_flag) {
+    g_pending_notify_flag = false;
+    ble_send(g_pending_notify);
+  }
+
   // FIX BUG B: eksekusi replay di sini, bukan di BLE callback
   if (g_replay_pending && !g_capturing) {
     g_replay_pending = false;
     signal_replay(g_replay_buf, g_replay_count);
     return;
+  }
+
+  // ── Eksekusi test / diagnostic commands ──────────────────────
+  if (!g_capturing && !g_replaying && !g_replay_pending) {
+    if (g_set_freq_hz != 0) {
+      uint32_t hz = g_set_freq_hz; g_set_freq_hz = 0;
+      cmd_set_freq(hz); return;
+    }
+    if (g_test_led_pending) {
+      g_test_led_pending = false; cmd_test_led(); return;
+    }
+    if (g_test_sensor_pending) {
+      g_test_sensor_pending = false; cmd_test_sensor(); return;
+    }
+    if (g_test_loop_pending) {
+      g_test_loop_pending = false; cmd_test_loop(); return;
+    }
   }
 
   if (!g_capturing) return;
@@ -523,11 +804,17 @@ void loop() {
   g_capturing = false;
 
   // Proses timings
-  g_cap_count = capture_process(ev, g_cap_timings, MAX_TIMINGS);
+  bool cap_truncated = false;
+  g_cap_count = capture_process(ev, g_cap_timings, MAX_TIMINGS, &cap_truncated);
   if (g_cap_count < 6) {
     Serial.println("[CAP] Sinyal terlalu pendek");
     ble_send("{\"event\":\"error\",\"msg\":\"sinyal terlalu pendek\"}");
     return;
+  }
+  if (cap_truncated) {
+    // FIX BUG G: kasih tahu user kalau sinyal capture dipotong (device limit)
+    Serial.println("[CAP] Sinyal terpotong (melebihi MAX_TIMINGS)");
+    ble_send("{\"event\":\"warning\",\"msg\":\"sinyal terpotong ke " + String(MAX_TIMINGS) + " timing, mungkin tidak lengkap\"}");
   }
 
   Serial.printf("[CAP] OK: %d timings\n", g_cap_count);

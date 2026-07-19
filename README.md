@@ -42,6 +42,10 @@ Commands (web → device):
 {"cmd":"capture","name":"TV_Power"}
 {"cmd":"replay","timings":[9000,4500,560,...]}
 {"cmd":"status"}
+{"cmd":"test_sensor"}              // wait 5s for any IR signal from a remote
+{"cmd":"test_led"}                 // fire IR LED ~2s (check with phone camera)
+{"cmd":"test_loop"}                // send burst via TX, check if RX detects it
+{"cmd":"set_freq","hz":38000}      // set carrier frequency (30000–60000 Hz)
 ```
 
 Events (device → web):
@@ -50,8 +54,15 @@ Events (device → web):
 {"event":"capturing"}
 {"event":"captured","name":"TV_Power","timings":[...]}
 {"event":"done","msg":"replay selesai"}
+{"event":"freq_set","hz":38000,"msg":"Carrier 38 kHz OK"}
+{"event":"test_led","status":"start","msg":"..."}
+{"event":"test_led","ok":true,"msg":"..."}
+{"event":"test_sensor","ok":true,"count":42,"preview":[{"d":9000,"s":0},...]}
+{"event":"test_loop","ok":true,"symbols":5,"msg":"Loopback OK! ..."}
 {"event":"error","msg":"..."}
 ```
+
+Supported carrier frequencies: 33, 36, 37, 38 (default), 40, 56 kHz.
 
 ## Project Structure
 

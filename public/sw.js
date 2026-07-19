@@ -1,5 +1,5 @@
 // ── Service Worker — IR Remote PWA ──────────────────────────
-const CACHE_NAME = 'ir-remote-v4';
+const CACHE_NAME = 'ir-remote-v7';
 const CACHE_IRDB = 'ir-remote-irdb-v1';
 
 // Asset inti yang di-cache saat install

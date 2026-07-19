@@ -131,7 +131,7 @@ body{
 .list-item:active{background:#f0ece6;border-color:var(--clay)}
 .list-main{font-size:14px;font-weight:700;color:var(--text)}
 .list-sub{font-size:12px;color:var(--text3);margin-top:3px}
-.list-arrow{color:var(--text3);font-size:18px}
+.list-arrow{color:var(--text3);display:flex;align-items:center;flex-shrink:0}
 
 /* ── Remote view ── */
 .remote-scroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch}
@@ -202,19 +202,65 @@ body{
 .saved-play:active{background:var(--clay2)}
 .saved-del{padding:7px 10px;background:#f5f2ed;border:1.5px solid var(--border);border-radius:7px;color:var(--red);font-size:13px;cursor:pointer;min-height:36px}
 
+/* ── Test Hardware card ── */
+.freq-label{font-size:11px;color:var(--text3);font-family:monospace;font-weight:600;margin-bottom:6px}
+.freq-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+.freq-chip{
+  padding:6px 11px;border:1.5px solid var(--border);border-radius:8px;
+  background:#fff;font-size:12px;font-weight:700;font-family:monospace;
+  cursor:pointer;color:var(--text2);transition:all .12s;
+  display:flex;align-items:center;justify-content:center;
+  -webkit-tap-highlight-color:transparent;
+}
+.freq-chip:active{background:var(--clay2);border-color:var(--clay2);color:#fff}
+.freq-chip.fc-on{background:var(--clay);border-color:var(--clay);color:#fff}
+.test-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:10px}
+.test-btn{
+  padding:11px 8px;border:1.5px solid var(--border);border-radius:9px;
+  background:#fff;cursor:pointer;text-align:center;min-height:62px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:3px;transition:all .12s;-webkit-tap-highlight-color:transparent;
+}
+.test-btn:active{background:#f0ece6;border-color:var(--clay)}
+.tb-icon{font-size:20px;line-height:1;display:block}
+.tb-label{font-size:12px;font-weight:700;color:var(--text);font-family:monospace;line-height:1.3}
+.tb-sub{font-size:10px;color:var(--text3);font-family:sans-serif;margin-top:1px;line-height:1.2}
+.test-btn.tb-full{grid-column:span 2;flex-direction:row;gap:10px;padding:12px 14px;min-height:48px;text-align:left}
+.test-btn.tb-full .tb-icon{font-size:18px;flex-shrink:0}
+.test-btn.tb-full .tb-label{font-size:13px}
+
 /* ── Bottom nav ── */
 .bnav{
   position:fixed;bottom:0;left:0;right:0;
-  display:flex;border-top:1.5px solid var(--border);
-  background:rgba(250,248,244,0.97);
+  display:flex;
+  background:#fff;
+  border-top:2px solid var(--border);
   padding-bottom:env(safe-area-inset-bottom);
-  z-index:50;backdrop-filter:blur(8px);
+  z-index:50;
+  box-shadow:0 -4px 20px rgba(0,0,0,0.08);
   height:calc(var(--bnav-h) + env(safe-area-inset-bottom));
 }
-.bnav-item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:8px 0 6px;cursor:pointer;gap:4px;min-width:0}
-.bnav-item i{font-size:24px;color:var(--text3);line-height:1}
-.bnav-item span{font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.3px;text-transform:uppercase;font-family:monospace}
-.bnav-item.active i,.bnav-item.active span{color:var(--clay)}
+.bnav-item{
+  flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:6px 0 4px;cursor:pointer;gap:5px;min-width:0;
+  transition:background .15s;
+  -webkit-tap-highlight-color:transparent;
+  border-radius:0;
+}
+.bnav-item:active{background:#f5ede6}
+.bnav-item svg{display:block;flex-shrink:0;color:var(--text3);transition:color .15s,transform .15s}
+.bnav-item span{
+  font-size:11px;font-weight:800;color:var(--text3);
+  letter-spacing:.5px;text-transform:uppercase;font-family:monospace;
+  transition:color .15s;
+}
+.bnav-item.active svg{color:var(--clay);transform:translateY(-1px)}
+.bnav-item.active span{color:var(--clay)}
+.bnav-item.active{position:relative}
+.bnav-item.active::before{
+  content:'';position:absolute;top:0;left:20%;right:20%;
+  height:3px;background:var(--clay);border-radius:0 0 3px 3px;
+}
 
 /* ── Toast ── */
 .toast{
@@ -261,7 +307,7 @@ body{
   <div class="conn-title">Hubungkan ke ESP32-C6</div>
   <div class="conn-sub">Pastikan firmware sudah di-upload dan ESP32-C6 menyala.<br>Lalu tap tombol di bawah untuk scan Bluetooth.</div>
   <button class="conn-btn" id="connBtn" onclick="doConnect()">
-    <i class="ti ti-bluetooth" aria-hidden="true"></i>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6.5 6.5 11 11M6.5 17.5l11-11M12 3v18M4.5 9l7.5-7.5 7.5 7.5M4.5 15l7.5 7.5 7.5-7.5"/></svg>
     SCAN &amp; CONNECT
   </button>
   <div class="conn-status" id="connStatus"></div>
@@ -274,7 +320,7 @@ body{
   <div class="conn-title">Koneksi Terputus</div>
   <div class="conn-sub">ESP32-C6 tidak terhubung.<br>Nyalakan perangkat lalu reconnect.</div>
   <button class="conn-btn" onclick="doReconnect()">
-    <i class="ti ti-refresh" aria-hidden="true"></i>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
     RECONNECT
   </button>
   <div class="conn-status" id="discStatus"></div>
@@ -298,7 +344,7 @@ body{
 <div class="page active" id="pageBrowse" style="display:none">
   <div class="search-wrap">
     <div class="search-box">
-      <i class="ti ti-search" aria-hidden="true"></i>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;color:var(--text3)" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
       <input id="searchInput" placeholder="search device or brand…" oninput="onSearch(this.value)" autocomplete="off">
     </div>
   </div>
@@ -321,17 +367,63 @@ body{
       </div>
       <div id="savedList"></div>
     </div>
+
+    <!-- Test Hardware -->
+    <div class="cap-card">
+      <div class="card-label">🔬 Test Hardware</div>
+      <div class="freq-label">Carrier Frequency</div>
+      <div class="freq-row" id="freqRow">
+        <div class="freq-chip" onclick="setFreq(33000)">33 kHz</div>
+        <div class="freq-chip" onclick="setFreq(36000)">36 kHz</div>
+        <div class="freq-chip" onclick="setFreq(37000)">37 kHz</div>
+        <div class="freq-chip fc-on" onclick="setFreq(38000)">38 kHz</div>
+        <div class="freq-chip" onclick="setFreq(40000)">40 kHz</div>
+        <div class="freq-chip" onclick="setFreq(56000)">56 kHz</div>
+      </div>
+      <div class="test-grid">
+        <div class="test-btn" onclick="testSensor()">
+          <span class="tb-icon">📡</span>
+          <span class="tb-label">Test Sensor</span>
+          <span class="tb-sub">tekan remote ke sensor</span>
+        </div>
+        <div class="test-btn" onclick="testLed()">
+          <span class="tb-icon">💡</span>
+          <span class="tb-label">Test LED IR</span>
+          <span class="tb-sub">cek kamera HP</span>
+        </div>
+        <div class="test-btn tb-full" onclick="testLoop()">
+          <span class="tb-icon">🔄</span>
+          <div>
+            <div class="tb-label">Test Loopback TX→RX</div>
+            <div class="tb-sub">kirim burst, sensor harus terima</div>
+          </div>
+        </div>
+      </div>
+      <div class="cap-status cs-idle" id="testStatus">Pilih test di atas</div>
+      <div id="testViz"></div>
+    </div>
   </div>
 </div>
 
 <!-- Bottom nav -->
 <div class="bnav" style="display:none">
   <div class="bnav-item active" id="navBrowse" onclick="showTab('Browse')">
-    <i class="ti ti-database" aria-hidden="true"></i>
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="3" width="7" height="7" rx="1.5"/>
+      <rect x="14" y="3" width="7" height="7" rx="1.5"/>
+      <rect x="3" y="14" width="7" height="7" rx="1.5"/>
+      <rect x="14" y="14" width="7" height="7" rx="1.5"/>
+    </svg>
     <span>Browse</span>
   </div>
   <div class="bnav-item" id="navCapture" onclick="showTab('Capture')">
-    <i class="ti ti-bolt" aria-hidden="true"></i>
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="3.5" stroke-width="2.5"/>
+      <path d="M7.5 7.5a6.5 6.5 0 0 0 0 9"/>
+      <path d="M16.5 7.5a6.5 6.5 0 0 1 0 9"/>
+      <path d="M4.5 4.5a11 11 0 0 0 0 15"/>
+      <path d="M19.5 4.5a11 11 0 0 1 0 15"/>
+    </svg>
     <span>Capture</span>
   </div>
 </div>
@@ -340,6 +432,16 @@ body{
 
 <script>
 // ─── BLE ──────────────────────────────────────────────────────
+// ─── SVG Icons (inline, no CDN needed) ───────────────────────
+const ICO={
+  chevL:`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>`,
+  chevR:`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>`,
+  power:`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right:5px"><path d="M12 2v10M4.93 4.93a10 10 0 1 0 14.14 0"/></svg>`,
+  wifiOff:`<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.56 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="currentColor"/></svg>`,
+  searchOff:`<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="8" x2="14" y2="14"/></svg>`,
+  ghost:`<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 10h.01M15 10h.01M12 2a8 8 0 0 0-8 8v12l3-3 2.5 2.5L12 19l2.5 2.5L17 19l3 3V10a8 8 0 0 0-8-8z"/></svg>`,
+};
+
 const NUS_SVC='6e400001-b5a3-f393-e0a9-e50e24dcca9e';
 const NUS_RX ='6e400002-b5a3-f393-e0a9-e50e24dcca9e';
 const NUS_TX ='6e400003-b5a3-f393-e0a9-e50e24dcca9e';
@@ -471,7 +573,25 @@ function onBleRx(e){
     bleBusy=false;
   }
   else if(ev==='done'){toast('✅ Signal sent');bleBusy=false;}
-  else if(ev==='error'){toast('❌ '+msg.msg);setCapStatus('err','❌ '+msg.msg);bleBusy=false;}
+  else if(ev==='error'){toast('❌ '+msg.msg);setCapStatus('err','❌ '+msg.msg);setTestStatus('err','❌ '+msg.msg);bleBusy=false;}
+  else if(ev==='test_led'){
+    if(msg.status==='start')setTestStatus('listen','📷 '+msg.msg);
+    else{setTestStatus(msg.ok?'ok':'err',(msg.ok?'✅ ':'❌ ')+msg.msg);bleBusy=false;}
+  }
+  else if(ev==='test_sensor'){
+    if(msg.status==='start')setTestStatus('listen','📡 '+msg.msg);
+    else{
+      setTestStatus(msg.ok?'ok':'err',(msg.ok?'✅ ':'❌ ')+msg.msg);
+      if(msg.ok&&msg.preview)renderTestViz(msg.preview);
+      bleBusy=false;
+    }
+  }
+  else if(ev==='test_loop'){
+    if(msg.status==='start')setTestStatus('listen','🔄 '+msg.msg);
+    else{setTestStatus(msg.ok?'ok':'err',(msg.ok?'✅ ':'❌ ')+msg.msg);bleBusy=false;}
+  }
+  else if(ev==='freq_set'){toast('✓ '+msg.msg);}
+  else if(ev==='warning'){toast('⚠️ '+msg.msg);}
 }
 
 // ─── Database ─────────────────────────────────────────────────
@@ -496,7 +616,7 @@ const CAT_ICONS={
 
 async function loadMeta(){
   try{const r=await fetch('ir_db/meta.json');meta=await r.json();renderCats();}
-  catch(e){document.getElementById('browseContent').innerHTML='<div class="empty-state"><i class="ti ti-wifi-off"></i><p>Failed to load database</p></div>';}
+  catch(e){document.getElementById('browseContent').innerHTML=`<div class="empty-state">${ICO.wifiOff}<p>Failed to load database</p></div>`;}
 }
 
 function renderCats(){
@@ -518,7 +638,7 @@ async function loadCat(cat){
   el.innerHTML='<div class="spinner">loading…</div>';
   let devs;
   try{const r=await fetch(`ir_db/${cat}.json`);devs=await r.json();}
-  catch(e){el.innerHTML='<div class="empty-state"><i class="ti ti-wifi-off"></i><p>Gagal memuat kategori</p></div>';return;}
+  catch(e){el.innerHTML=`<div class="empty-state">${ICO.wifiOff}<p>Gagal memuat kategori</p></div>`;return;}
   const brands={};
   devs.forEach(d=>{if(!brands[d.brand])brands[d.brand]=[];brands[d.brand].push(d);});
   el.innerHTML='';
@@ -526,7 +646,7 @@ async function loadCat(cat){
   const list=document.createElement('div');list.className='list';
   Object.entries(brands).sort().forEach(([brand,ds])=>{
     const item=document.createElement('div');item.className='list-item';
-    item.innerHTML=`<div><div class="list-main">${brand}</div><div class="list-sub">${ds.length} device${ds.length>1?'s':''}</div></div><i class="ti ti-chevron-right list-arrow" aria-hidden="true"></i>`;
+    item.innerHTML=`<div><div class="list-main">${brand}</div><div class="list-sub">${ds.length} device${ds.length>1?'s':''}</div></div><span class="list-arrow">${ICO.chevR}</span>`;
     item.onclick=()=>showBrand(brand,ds,()=>loadCat(cat));
     list.appendChild(item);
   });
@@ -540,7 +660,7 @@ function showBrand(brand,devs,goBack){
   const list=document.createElement('div');list.className='list';
   devs.forEach(dev=>{
     const item=document.createElement('div');item.className='list-item';
-    item.innerHTML=`<div><div class="list-main">${dev.model}</div><div class="list-sub">${dev.buttons.length} buttons · ${dev.types.join('/')}</div></div><i class="ti ti-chevron-right list-arrow" aria-hidden="true"></i>`;
+    item.innerHTML=`<div><div class="list-main">${dev.model}</div><div class="list-sub">${dev.buttons.length} buttons · ${dev.types.join('/')}</div></div><span class="list-arrow">${ICO.chevR}</span>`;
     item.onclick=()=>showRemote(dev);
     list.appendChild(item);
   });
@@ -552,7 +672,7 @@ async function showRemote(dev){
   el.innerHTML='<div class="spinner">loading buttons…</div>';
   let irText;
   try{const r=await fetch(dev.url);irText=await r.text();}
-  catch(e){el.innerHTML='<div class="empty-state"><i class="ti ti-wifi-off"></i><p>Failed to load</p></div>';return;}
+  catch(e){el.innerHTML=`<div class="empty-state">${ICO.wifiOff}<p>Failed to load</p></div>`;return;}
   const buttons=parseIr(irText);
   el.innerHTML='';
   el.appendChild(makeBack(dev.model,()=>loadCat(curCat)));
@@ -563,7 +683,7 @@ async function showRemote(dev){
 
 function makeBack(title,onBack){
   const bar=document.createElement('div');bar.className='back-bar';
-  bar.innerHTML=`<div class="back-label"><i class="ti ti-chevron-left" aria-hidden="true"></i>back</div><div class="page-title">${title}</div>`;
+  bar.innerHTML=`<div class="back-label">${ICO.chevL}back</div><div class="page-title">${title}</div>`;
   bar.onclick=onBack;return bar;
 }
 
@@ -613,7 +733,7 @@ function buildRemote(buttons){
     groups.power.forEach(btn=>{
       const b=document.createElement('div');
       b.className='ir-btn power span3';
-      b.innerHTML=`<i class="ti ti-power" aria-hidden="true" style="font-size:15px;margin-right:5px"></i>${btn.name.replace(/[_]/g,' ')}`;
+      b.innerHTML=`${ICO.power}${btn.name.replace(/[_]/g,' ')}`;
       b.onclick=()=>sendBtn(btn,b);grid.appendChild(b);
     });
     sec.appendChild(grid);wrap.appendChild(sec);
@@ -661,7 +781,7 @@ function buildRemote(buttons){
 
   // Empty
   if(!buttons.length){
-    wrap.innerHTML='<div class="empty-state"><i class="ti ti-ghost"></i><p>No buttons found in this file</p></div>';
+    wrap.innerHTML=`<div class="empty-state">${ICO.ghost}<p>No buttons found in this file</p></div>`;
   }
   return wrap;
 }
@@ -730,9 +850,14 @@ function encSamsung(btn){
   [a,a,c,(~c)&0xFF].forEach(byte=>{for(let i=0;i<8;i++)pairs.push({mark:560,space:(byte>>i)&1?1690:560});});
   pairs.push({mark:560});return bp(pairs);
 }
+const rc5Toggle={};
 function encRC5(btn){
   const a=hx(btn.address)[0]&0x1F,c=hx(btn.command)[0]&0x3F,H=889;
-  const bits=[1,1,0];
+  // FIX: toggle bit dulu di-hardcode 0 — device RC5 strict bisa anggap tiap
+  // tap sebagai auto-repeat, bukan keypress baru. Flip tiap kali tombol ini dikirim.
+  const rkey=a+'_'+c;
+  const tgl=rc5Toggle[rkey]=1-(rc5Toggle[rkey]||0);
+  const bits=[1,1,tgl];
   for(let i=4;i>=0;i--)bits.push((a>>i)&1);
   for(let i=5;i>=0;i--)bits.push((c>>i)&1);
   const pairs=[];
@@ -766,11 +891,11 @@ async function onSearch(val){
   const q=val.toLowerCase();
   const res=searchIdx.filter(d=>d.model.toLowerCase().includes(q)||d.brand.toLowerCase().includes(q)||d.cat.toLowerCase().includes(q)).slice(0,60);
   const el=document.getElementById('browseContent');el.innerHTML='';
-  if(!res.length){el.innerHTML='<div class="empty-state"><i class="ti ti-search-off"></i><p>no results for "'+val+'"</p></div>';return;}
+  if(!res.length){el.innerHTML=`<div class="empty-state">${ICO.searchOff}<p>no results for "${val}"</p></div>`;return;}
   const list=document.createElement('div');list.className='list';
   res.forEach(dev=>{
     const item=document.createElement('div');item.className='list-item';
-    item.innerHTML=`<div><div class="list-main">${dev.brand} ${dev.model}</div><div class="list-sub">${dev.cat.replace(/_/g,' ')} · ${dev.buttons.length} buttons</div></div><i class="ti ti-chevron-right list-arrow" aria-hidden="true"></i>`;
+    item.innerHTML=`<div><div class="list-main">${dev.brand} ${dev.model}</div><div class="list-sub">${dev.cat.replace(/_/g,' ')} · ${dev.buttons.length} buttons</div></div><span class="list-arrow">${ICO.chevR}</span>`;
     item.onclick=()=>{curCat=dev.cat;showRemote(dev);};
     list.appendChild(item);
   });
@@ -952,6 +1077,75 @@ async function replaySaved(i){
   if(!ok)bleBusy=false;
 }
 function delSaved(i){saved.splice(i,1);localStorage.setItem('ir_saved',JSON.stringify(saved));renderSaved();}
+
+// ─── Test Hardware ────────────────────────────────────────────
+let activeFreqHz=38000;
+const FREQ_LIST=[33000,36000,37000,38000,40000,56000];
+
+function setFreq(hz){
+  activeFreqHz=hz;
+  const chips=document.querySelectorAll('.freq-chip');
+  FREQ_LIST.forEach((f,i)=>{
+    chips[i]&&chips[i].classList.toggle('fc-on',f===hz);
+  });
+  if(!bleCharRx||bleBusy)return;
+  bleSend({cmd:'set_freq',hz});
+}
+
+function setTestStatus(type,msg){
+  const el=document.getElementById('testStatus');
+  if(!el)return;
+  el.className='cap-status cs-'+type;
+  el.textContent=msg;
+}
+
+async function testSensor(){
+  if(!bleCharRx){toast('not connected');return;}
+  if(bleBusy){toast('device busy');return;}
+  bleBusy=true;
+  const viz=document.getElementById('testViz');if(viz)viz.innerHTML='';
+  setTestStatus('listen','⏳ Menunggu respons ESP32...');
+  await bleSend({cmd:'test_sensor'});
+}
+
+async function testLed(){
+  if(!bleCharRx){toast('not connected');return;}
+  if(bleBusy){toast('device busy');return;}
+  bleBusy=true;
+  const viz=document.getElementById('testViz');if(viz)viz.innerHTML='';
+  setTestStatus('listen','⏳ Menunggu respons ESP32...');
+  await bleSend({cmd:'test_led'});
+}
+
+async function testLoop(){
+  if(!bleCharRx){toast('not connected');return;}
+  if(bleBusy){toast('device busy');return;}
+  bleBusy=true;
+  const viz=document.getElementById('testViz');if(viz)viz.innerHTML='';
+  setTestStatus('listen','⏳ Mempersiapkan loopback...');
+  await bleSend({cmd:'test_loop'});
+}
+
+function renderTestViz(preview){
+  const el=document.getElementById('testViz');
+  if(!el||!preview||!preview.length)return;
+  const W=300,H=36,PAD=2,HI=4,LO=28;
+  const totalUs=preview.reduce((a,p)=>a+p.d,0);
+  if(!totalUs)return;
+  const scale=(W-PAD*2)/totalUs;
+  let path=`M${PAD},${LO}`,x=PAD;
+  for(const p of preview){
+    const w=Math.max(2,Math.round(p.d*scale));
+    if(!p.s){path+=` V${HI} H${x+w} V${LO}`;}
+    else{path+=` H${x+w}`;}
+    x+=w;
+  }
+  path+=` H${W-PAD}`;
+  el.innerHTML=
+    `<div style="font-size:10px;color:var(--text3);font-family:monospace;margin-top:9px;margin-bottom:3px">Waveform preview (${preview.length} pulses dari remote):</div>`+
+    `<svg width="100%" viewBox="0 0 ${W} ${H}" style="background:#1e1a17;border-radius:6px;display:block">`+
+    `<path d="${path}" fill="none" stroke="var(--clay)" stroke-width="2" stroke-linejoin="miter"/></svg>`;
+}
 
 // ─── Nav ──────────────────────────────────────────────────────
 function showTab(name){
