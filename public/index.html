@@ -322,7 +322,7 @@ body{
   </button>
   <div class="conn-status" id="connStatus"></div>
   <div class="conn-note">Gunakan Chrome di Android atau Chrome desktop.<br>Cari perangkat bernama <b>IR-Remote-C6</b></div>
-  <div class="conn-note" style="opacity:.5;font-family:monospace">build v9-hex-countdown</div>
+  <div class="conn-note" style="opacity:.5;font-family:monospace">build v10-dedupe-busy-fix</div>
 </div>
 
 <!-- Disconnect Overlay (muncul kalau putus saat sudah di dalam app) -->
@@ -620,7 +620,18 @@ function onBleRx(e){
     setBleBusy(false);setCaptureUI(false);
   }
   else if(ev==='done'){toast('✅ Signal sent');setBleBusy(false);}
-  else if(ev==='error'){toast('❌ '+msg.msg);setCapStatus('err','❌ '+msg.msg);setTestStatus('err','❌ '+msg.msg);setBleBusy(false);setCaptureUI(false);}
+  else if(ev==='error'){
+    // FIX BUG K: kalau capture asli masih jalan (tombol masih disabled),
+    // "busy" yang balik ini hampir pasti noise dari command duplikat yang
+    // dikirim device sendiri (lihat komentar g_lastCmdRaw di firmware) —
+    // JANGAN reset UI, biarkan capture yang beneran lanjut sampai selesai.
+    // Kalau di-reset di sini, tombol jadi aktif lagi padahal device masih
+    // listening, bikin user tap ulang dan makin parah loop-nya.
+    const capBtnEl=document.getElementById('capBtn');
+    const captureInFlight=msg.msg==='busy'&&capBtnEl&&capBtnEl.disabled;
+    if(captureInFlight){console.warn('[BLE] busy noise diabaikan, capture masih berjalan');return;}
+    toast('❌ '+msg.msg);setCapStatus('err','❌ '+msg.msg);setTestStatus('err','❌ '+msg.msg);setBleBusy(false);setCaptureUI(false);
+  }
   else if(ev==='test_led'){
     if(msg.status==='start')setTestStatus('listen','📷 '+msg.msg);
     else{setTestStatus(msg.ok?'ok':'err',(msg.ok?'✅ ':'❌ ')+msg.msg);setBleBusy(false);}

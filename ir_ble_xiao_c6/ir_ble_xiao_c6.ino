@@ -108,6 +108,16 @@ static bool    rmt_rx_active   = false;  // FIX BUG 3: track state RMT receive
 unsigned long  g_capture_start = 0;
 String         g_pending_name  = "";
 
+// FIX BUG K: Android/Chrome BLE stack kadang mengirim ulang satu
+// writeValueWithoutResponse() sebagai 2 event onWrite() terpisah (0-2ms
+// beda waktu) — bukan dari tap user. Command duplikat ini ditolak sebagai
+// "busy", tapi web app salah mengartikan busy itu sebagai capture GAGAL dan
+// reset UI padahal capture asli masih jalan normal di background. Buang
+// command yang identik & datang <400ms dari command terakhir sebelum
+// diproses, biar duplikat ini gak pernah sampai ke logic "busy".
+static String  g_lastCmdRaw  = "";
+static unsigned long g_lastCmdTime = 0;
+
 // ── LED State Machine ────────────────────────────────────────
 unsigned long  g_led_timer     = 0;
 int            g_led_phase     = 0;
@@ -363,6 +373,17 @@ class RxCallbacks : public BLECharacteristicCallbacks {
     String val = rxBuffer.substring(0, jsonEnd + 1);
     rxBuffer = rxBuffer.substring(jsonEnd + 1);  // sisa untuk command berikutnya
     val.trim();
+
+    // FIX BUG K: buang duplikat persis yang datang <400ms dari command
+    // terakhir (lihat komentar di deklarasi g_lastCmdRaw)
+    unsigned long now = millis();
+    if (val == g_lastCmdRaw && (now - g_lastCmdTime) < 400) {
+      Serial.printf("[BLE RX] duplicate ignored: %s\n", val.c_str());
+      return;
+    }
+    g_lastCmdRaw  = val;
+    g_lastCmdTime = now;
+
     Serial.printf("[BLE RX] %s\n", val.c_str());
 
     String cmd = json_get(val, "cmd");
