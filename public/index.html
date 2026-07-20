@@ -534,6 +534,9 @@ async function doReconnect(){
 }
 
 function onBleConnected(){
+  // FIX BUG L: koneksi baru harus selalu mulai bersih, jaga-jaga kalau ada
+  // state basi dari sesi sebelumnya (tab lama, reconnect, dll)
+  setBleBusy(false);setCaptureUI(false);
   // Sembunyikan connect screen, tampilkan app
   const cs=document.getElementById('connectScreen');
   cs.classList.add('hidden');

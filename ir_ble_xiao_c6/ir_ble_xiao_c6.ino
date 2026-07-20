@@ -148,6 +148,21 @@ class ServerCallbacks : public BLEServerCallbacks {
     digitalWrite(PIN_LED, LOW);  // LED ON saat connected
     g_led_phase = 0;
     g_led_timer = millis();
+    // FIX BUG L: dulu cuma di-reset saat onDisconnect — kalau state
+    // capturing/replaying/dll ke-stuck dari sesi sebelumnya (state yang gak
+    // sempat ke-reset lewat disconnect resmi), koneksi BARU mewarisi state
+    // basi itu dan langsung "busy"/timeout instan tanpa pernah sempat mulai.
+    // Koneksi baru harus SELALU mulai bersih, gak peduli histori sebelumnya.
+    rxBuffer              = "";
+    g_capturing           = false;
+    g_replaying           = false;
+    g_replay_pending      = false;
+    rmt_rx_active         = false;
+    g_test_led_pending    = false;
+    g_test_sensor_pending = false;
+    g_test_loop_pending   = false;
+    g_set_freq_hz         = 0;
+    g_pending_notify_flag = false;
   }
   void onDisconnect(BLEServer* s) override {
     bleConnected = false;
