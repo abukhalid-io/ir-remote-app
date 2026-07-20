@@ -557,7 +557,7 @@ function showConnectScreen(){
 
 function onBleDisconnect(){
   bleCharRx=null;
-  setBleBusy(false);  // FIX BUG 4: reset busy flag saat disconnect
+  setBleBusy(false);setCaptureUI(false);  // FIX BUG 4: reset busy flag saat disconnect
   // Kalau sudah di dalam app → tampilkan overlay disconnect
   if(document.getElementById('connectScreen').style.display==='none'){
     document.getElementById('discOverlay').classList.add('show');
@@ -599,21 +599,21 @@ function onBleRx(e){
     saveSignal(msg.name,msg.timings,dec);
     const decStr=dec?` · ${dec.protocol} ${dec.command}`:'';
     setCapStatus('ok','✅ Captured "'+msg.name+'" — '+msg.timings.length+' timings'+decStr);
-    setBleBusy(false);
+    setBleBusy(false);setCaptureUI(false);
   }
   else if(ev==='captured_start'){capturedChunks=[];capturedName=msg.name;setCapStatus('listen','📡 Receiving "'+msg.name+'"…');}
   else if(ev==='timings'&&capturedChunks)capturedChunks.push(...msg.data);
   else if(ev==='captured_end'){
-    if(!capturedChunks){setBleBusy(false);return;}  // guard: captured_start terlewat
+    if(!capturedChunks){setBleBusy(false);setCaptureUI(false);return;}  // guard: captured_start terlewat
     const n=capturedName||document.getElementById('capName').value.trim()||'untitled';
     const dec=decodeProtocol(capturedChunks);
     saveSignal(n,capturedChunks,dec);
     const decStr=dec?` · ${dec.protocol} ${dec.command}`:'';
     setCapStatus('ok','✅ '+capturedChunks.length+' timings'+decStr);
-    setBleBusy(false);
+    setBleBusy(false);setCaptureUI(false);
   }
   else if(ev==='done'){toast('✅ Signal sent');setBleBusy(false);}
-  else if(ev==='error'){toast('❌ '+msg.msg);setCapStatus('err','❌ '+msg.msg);setTestStatus('err','❌ '+msg.msg);setBleBusy(false);}
+  else if(ev==='error'){toast('❌ '+msg.msg);setCapStatus('err','❌ '+msg.msg);setTestStatus('err','❌ '+msg.msg);setBleBusy(false);setCaptureUI(false);}
   else if(ev==='test_led'){
     if(msg.status==='start')setTestStatus('listen','📷 '+msg.msg);
     else{setTestStatus(msg.ok?'ok':'err',(msg.ok?'✅ ':'❌ ')+msg.msg);setBleBusy(false);}
@@ -1099,11 +1099,22 @@ async function startCapture(){
   if(!name){document.getElementById('capName').focus();toast('enter a signal name first');return;}
   if(bleBusy){toast('device busy');return;}
   setBleBusy(true);capturedChunks=null;
+  setCaptureUI(true);
   setCapStatus('listen','⏳ waiting for ESP32…');
   const ok=await bleSend({cmd:'capture',name});
-  if(!ok){setBleBusy(false);setCapStatus('idle','not connected');}
+  if(!ok){setBleBusy(false);setCaptureUI(false);setCapStatus('idle','not connected');}
 }
 function setCapStatus(type,msg){const el=document.getElementById('capStatus');el.className='cap-status cs-'+type;el.textContent=msg;}
+// FIX: tombol START CAPTURE dulu gak ke-disable pas lagi listening — user
+// gampang tap ulang berkali-kali pas capture pertama masih jalan, tiap tap
+// tambahan itu munculin toast "busy" yang keliatan kayak gagal padahal
+// capture pertamanya masih berjalan normal di background.
+function setCaptureUI(active){
+  const b=document.getElementById('capBtn');
+  if(!b)return;
+  b.disabled=active;
+  b.textContent=active?'⏳ LISTENING… (5s)':'START CAPTURE';
+}
 
 // ─── Saved ────────────────────────────────────────────────────
 let saved=JSON.parse(localStorage.getItem('ir_saved')||'[]');
