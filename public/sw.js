@@ -1,16 +1,22 @@
 // ── Service Worker — IR Remote PWA ──────────────────────────
-const CACHE_NAME = 'ir-remote-v7';
+const CACHE_NAME = 'ir-remote-v8';
 const CACHE_IRDB = 'ir-remote-irdb-v1';
+
+// FIX: path dulu di-hardcode absolut dari root ("/ir_db/...") — cuma benar
+// kalau di-deploy di root domain (Vercel). Di GitHub Pages app-nya jalan di
+// subpath ("/ir-remote-app/..."), jadi semua path dihitung relatif terhadap
+// scope registrasi SW ini sendiri supaya portable di hosting manapun.
+const BASE = new URL(self.registration.scope).pathname;
 
 // Asset inti yang di-cache saat install
 const CORE_ASSETS = [
-  '/',
-  '/index.html',
-  '/manifest.json',
-  '/icon-192.png',
-  '/icon-512.png',
-  '/ir_db/meta.json',
-  '/ir_db/index.json',
+  BASE,
+  BASE + 'index.html',
+  BASE + 'manifest.json',
+  BASE + 'icon-192.png',
+  BASE + 'icon-512.png',
+  BASE + 'ir_db/meta.json',
+  BASE + 'ir_db/index.json',
   'https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.44.0/tabler-icons.min.css',
 ];
 
@@ -40,7 +46,7 @@ self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
 
   // File .ir dari flipper_irdb → cache-first (on-demand)
-  if (url.pathname.startsWith('/flipper_irdb/')) {
+  if (url.pathname.startsWith(BASE + 'flipper_irdb/')) {
     e.respondWith(
       caches.open(CACHE_IRDB).then(async cache => {
         const cached = await cache.match(e.request);
@@ -55,11 +61,11 @@ self.addEventListener('fetch', e => {
 
   // Asset inti & ir_db JSON → cache-first, fallback network
   if (
-    url.pathname === '/' ||
-    url.pathname.startsWith('/ir_db/') ||
-    url.pathname === '/index.html' ||
-    url.pathname === '/manifest.json' ||
-    url.pathname.startsWith('/icon-') ||
+    url.pathname === BASE ||
+    url.pathname.startsWith(BASE + 'ir_db/') ||
+    url.pathname === BASE + 'index.html' ||
+    url.pathname === BASE + 'manifest.json' ||
+    url.pathname.startsWith(BASE + 'icon-') ||
     url.origin === 'https://cdn.jsdelivr.net'
   ) {
     e.respondWith(

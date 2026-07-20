@@ -1203,7 +1203,7 @@ function toast(msg){const el=document.getElementById('toast');el.textContent=msg
 // ─── Service Worker ───────────────────────────────────────────
 if('serviceWorker' in navigator){
   window.addEventListener('load',()=>{
-    navigator.serviceWorker.register('/sw.js')
+    navigator.serviceWorker.register('./sw.js')
       .then(r=>console.log('[SW] Registered, scope:',r.scope))
       .catch(e=>console.warn('[SW] Register failed:',e));
   });
