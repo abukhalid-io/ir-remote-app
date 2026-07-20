@@ -457,6 +457,24 @@ const NUS_RX ='6e400002-b5a3-f393-e0a9-e50e24dcca9e';
 const NUS_TX ='6e400003-b5a3-f393-e0a9-e50e24dcca9e';
 let bleDevice=null,bleCharRx=null,bleBusy=false,capturedChunks=null,capturedName=null;
 
+// FIX BUG J: kalau writeValueWithoutResponse() gagal (paket lebih besar dari
+// MTU yang ke-negosiasi) dia throw — sebelumnya itu bikin bleBusy macet true
+// selamanya karena exception-nya gak ke-catch, semua aksi berikutnya keblok
+// "device busy" walau firmware-nya sendiri nganggur. setBleBusy() sekarang
+// juga pasang watchdog timeout — kalau gak ada respons device dalam 8 detik,
+// busy state di-reset otomatis supaya UI gak macet permanen.
+let bleBusyTimer=null;
+function setBleBusy(v){
+  bleBusy=v;
+  if(bleBusyTimer){clearTimeout(bleBusyTimer);bleBusyTimer=null;}
+  if(v){
+    bleBusyTimer=setTimeout(()=>{
+      bleBusyTimer=null;bleBusy=false;
+      toast('⚠️ Device tidak merespons, coba lagi');
+    },8000);
+  }
+}
+
 function setConnStatus(id,type,msg){
   const el=document.getElementById(id);
   el.className='conn-status cs-'+type;
@@ -539,7 +557,7 @@ function showConnectScreen(){
 
 function onBleDisconnect(){
   bleCharRx=null;
-  bleBusy=false;  // FIX BUG 4: reset busy flag saat disconnect
+  setBleBusy(false);  // FIX BUG 4: reset busy flag saat disconnect
   // Kalau sudah di dalam app → tampilkan overlay disconnect
   if(document.getElementById('connectScreen').style.display==='none'){
     document.getElementById('discOverlay').classList.add('show');
@@ -553,11 +571,23 @@ const enc=new TextEncoder(),dec=new TextDecoder();
 async function bleSend(obj){
   if(!bleCharRx){toast('Not connected');return false;}
   const s=JSON.stringify(obj);
-  for(let i=0;i<s.length;i+=200){
-    await bleCharRx.writeValueWithoutResponse(enc.encode(s.slice(i,i+200)));
-    await new Promise(r=>setTimeout(r,20));
+  // FIX BUG J: writeValueWithoutResponse() throw kalau chunk-nya lebih besar
+  // dari MTU yang ke-negosiasi — dulu itu gak di-catch, jadi exception-nya
+  // nerocos ke pemanggil (sendBtn/startCapture/dst) dan bikin setBleBusy(true)
+  // gak pernah ke-reset (UI macet "busy" selamanya). Sekarang selalu return
+  // false kalau gagal, gak pernah throw. Chunk juga diperkecil ke 150 byte
+  // biar aman walau MTU jatuh ke nilai kecil.
+  try{
+    for(let i=0;i<s.length;i+=150){
+      await bleCharRx.writeValueWithoutResponse(enc.encode(s.slice(i,i+150)));
+      await new Promise(r=>setTimeout(r,20));
+    }
+    return true;
+  }catch(e){
+    console.warn('[BLE] write failed:',e);
+    toast('❌ Gagal kirim ke device: '+e.message);
+    return false;
   }
-  return true;
 }
 
 function onBleRx(e){
@@ -569,36 +599,36 @@ function onBleRx(e){
     saveSignal(msg.name,msg.timings,dec);
     const decStr=dec?` · ${dec.protocol} ${dec.command}`:'';
     setCapStatus('ok','✅ Captured "'+msg.name+'" — '+msg.timings.length+' timings'+decStr);
-    bleBusy=false;
+    setBleBusy(false);
   }
   else if(ev==='captured_start'){capturedChunks=[];capturedName=msg.name;setCapStatus('listen','📡 Receiving "'+msg.name+'"…');}
   else if(ev==='timings'&&capturedChunks)capturedChunks.push(...msg.data);
   else if(ev==='captured_end'){
-    if(!capturedChunks){bleBusy=false;return;}  // guard: captured_start terlewat
+    if(!capturedChunks){setBleBusy(false);return;}  // guard: captured_start terlewat
     const n=capturedName||document.getElementById('capName').value.trim()||'untitled';
     const dec=decodeProtocol(capturedChunks);
     saveSignal(n,capturedChunks,dec);
     const decStr=dec?` · ${dec.protocol} ${dec.command}`:'';
     setCapStatus('ok','✅ '+capturedChunks.length+' timings'+decStr);
-    bleBusy=false;
+    setBleBusy(false);
   }
-  else if(ev==='done'){toast('✅ Signal sent');bleBusy=false;}
-  else if(ev==='error'){toast('❌ '+msg.msg);setCapStatus('err','❌ '+msg.msg);setTestStatus('err','❌ '+msg.msg);bleBusy=false;}
+  else if(ev==='done'){toast('✅ Signal sent');setBleBusy(false);}
+  else if(ev==='error'){toast('❌ '+msg.msg);setCapStatus('err','❌ '+msg.msg);setTestStatus('err','❌ '+msg.msg);setBleBusy(false);}
   else if(ev==='test_led'){
     if(msg.status==='start')setTestStatus('listen','📷 '+msg.msg);
-    else{setTestStatus(msg.ok?'ok':'err',(msg.ok?'✅ ':'❌ ')+msg.msg);bleBusy=false;}
+    else{setTestStatus(msg.ok?'ok':'err',(msg.ok?'✅ ':'❌ ')+msg.msg);setBleBusy(false);}
   }
   else if(ev==='test_sensor'){
     if(msg.status==='start')setTestStatus('listen','📡 '+msg.msg);
     else{
       setTestStatus(msg.ok?'ok':'err',(msg.ok?'✅ ':'❌ ')+msg.msg);
       if(msg.ok&&msg.preview)renderTestViz(msg.preview);
-      bleBusy=false;
+      setBleBusy(false);
     }
   }
   else if(ev==='test_loop'){
     if(msg.status==='start')setTestStatus('listen','🔄 '+msg.msg);
-    else{setTestStatus(msg.ok?'ok':'err',(msg.ok?'✅ ':'❌ ')+msg.msg);bleBusy=false;}
+    else{setTestStatus(msg.ok?'ok':'err',(msg.ok?'✅ ':'❌ ')+msg.msg);setBleBusy(false);}
   }
   else if(ev==='freq_set'){toast('✓ '+msg.msg);}
   else if(ev==='warning'){toast('⚠️ '+msg.msg);}
@@ -828,9 +858,9 @@ async function sendBtn(btn,el){
   if(bleBusy){toast('busy…');return;}
   const timings=resolveTimings(btn);
   if(!timings||timings.length<4){toast('protocol not supported yet');return;}
-  el.classList.add('pressed');bleBusy=true;
+  el.classList.add('pressed');setBleBusy(true);
   const ok=await bleSend({cmd:'replay',timings});
-  if(!ok)bleBusy=false;
+  if(!ok)setBleBusy(false);
   setTimeout(()=>el.classList.remove('pressed'),350);
 }
 
@@ -1068,10 +1098,10 @@ async function startCapture(){
   const name=document.getElementById('capName').value.trim();
   if(!name){document.getElementById('capName').focus();toast('enter a signal name first');return;}
   if(bleBusy){toast('device busy');return;}
-  bleBusy=true;capturedChunks=null;
+  setBleBusy(true);capturedChunks=null;
   setCapStatus('listen','⏳ waiting for ESP32…');
   const ok=await bleSend({cmd:'capture',name});
-  if(!ok){bleBusy=false;setCapStatus('idle','not connected');}
+  if(!ok){setBleBusy(false);setCapStatus('idle','not connected');}
 }
 function setCapStatus(type,msg){const el=document.getElementById('capStatus');el.className='cap-status cs-'+type;el.textContent=msg;}
 
@@ -1110,9 +1140,9 @@ function renderSaved(){
   });
 }
 async function replaySaved(i){
-  if(bleBusy){toast('busy…');return;}bleBusy=true;
+  if(bleBusy){toast('busy…');return;}setBleBusy(true);
   const ok=await bleSend({cmd:'replay',timings:saved[i].timings});
-  if(!ok)bleBusy=false;
+  if(!ok)setBleBusy(false);
 }
 function delSaved(i){saved.splice(i,1);localStorage.setItem('ir_saved',JSON.stringify(saved));renderSaved();}
 
@@ -1140,7 +1170,7 @@ function setTestStatus(type,msg){
 async function testSensor(){
   if(!bleCharRx){toast('not connected');return;}
   if(bleBusy){toast('device busy');return;}
-  bleBusy=true;
+  setBleBusy(true);
   const viz=document.getElementById('testViz');if(viz)viz.innerHTML='';
   setTestStatus('listen','⏳ Menunggu respons ESP32...');
   await bleSend({cmd:'test_sensor'});
@@ -1149,7 +1179,7 @@ async function testSensor(){
 async function testLed(){
   if(!bleCharRx){toast('not connected');return;}
   if(bleBusy){toast('device busy');return;}
-  bleBusy=true;
+  setBleBusy(true);
   const viz=document.getElementById('testViz');if(viz)viz.innerHTML='';
   setTestStatus('listen','⏳ Menunggu respons ESP32...');
   await bleSend({cmd:'test_led'});
@@ -1158,7 +1188,7 @@ async function testLed(){
 async function testLoop(){
   if(!bleCharRx){toast('not connected');return;}
   if(bleBusy){toast('device busy');return;}
-  bleBusy=true;
+  setBleBusy(true);
   const viz=document.getElementById('testViz');if(viz)viz.innerHTML='';
   setTestStatus('listen','⏳ Mempersiapkan loopback...');
   await bleSend({cmd:'test_loop'});

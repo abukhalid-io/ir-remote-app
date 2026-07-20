@@ -703,6 +703,7 @@ void setup() {
 
   // ── BLE ────────────────────────────────────────────────────
   BLEDevice::init("IR-Remote-C6");
+  BLEDevice::setMTU(247);  // FIX BUG J: minta MTU lebih besar dari default 23 byte
   pServer = BLEDevice::createServer();
   pServer->setCallbacks(new ServerCallbacks());
 
@@ -829,8 +830,14 @@ void loop() {
   }
   resp += "]}";
 
-  // Kirim dalam chunks jika terlalu panjang (BLE MTU ~512 bytes)
-  const int CHUNK = 500;
+  // FIX BUG J: CHUNK dulu 500 — asumsi MTU besar itu gak terjamin. ESP32
+  // minta MTU 247 (lihat BLEDevice::setMTU di setup()), tapi kalau central
+  // gak setuju/gagal negosiasi, bisa jatuh ke MTU default 23 byte. Notify()
+  // di lib ini TIDAK auto-fragment — kalau msg lebih panjang dari (MTU-3),
+  // paketnya silently terpotong dan JSON.parse() di browser gagal diam-diam,
+  // client gak pernah dapat event apapun → bleBusy macet permanen ("selalu
+  // busy"). Turunin ke nilai yang aman walau MTU jatuh ke nilai kecil.
+  const int CHUNK = 150;
   if ((int)resp.length() <= CHUNK) {
     ble_send(resp);
   } else {
