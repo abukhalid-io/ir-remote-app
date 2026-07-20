@@ -1097,12 +1097,23 @@ function exportAllIR(){
 }
 
 // ─── Capture ──────────────────────────────────────────────────
+let captureCountdownTimer=null;
 async function startCapture(){
   const name=document.getElementById('capName').value.trim();
   if(!name){document.getElementById('capName').focus();toast('enter a signal name first');return;}
   if(bleBusy){toast('device busy');return;}
   setBleBusy(true);capturedChunks=null;
   setCaptureUI(true);
+  // FIX: countdown detik-per-detik di tombol — biar SUPER jelas window
+  // listening masih jalan, gak perlu tap ulang. Firmware timeout-nya
+  // persis 5 detik (CAPTURE_TIMEOUT_MS), jadi hitungan ini sinkron.
+  let secondsLeft=5;
+  const capBtn=document.getElementById('capBtn');
+  captureCountdownTimer=setInterval(()=>{
+    secondsLeft--;
+    if(secondsLeft<=0){clearInterval(captureCountdownTimer);captureCountdownTimer=null;return;}
+    if(capBtn)capBtn.textContent='⏳ LISTENING… ('+secondsLeft+'s) — JANGAN TAP LAGI';
+  },1000);
   setCapStatus('listen','⏳ waiting for ESP32…');
   const ok=await bleSend({cmd:'capture',name});
   if(!ok){setBleBusy(false);setCaptureUI(false);setCapStatus('idle','not connected');}
@@ -1116,7 +1127,8 @@ function setCaptureUI(active){
   const b=document.getElementById('capBtn');
   if(!b)return;
   b.disabled=active;
-  b.textContent=active?'⏳ LISTENING… (5s)':'START CAPTURE';
+  b.textContent=active?'⏳ LISTENING… (5s) — JANGAN TAP LAGI':'START CAPTURE';
+  if(!active && captureCountdownTimer){clearInterval(captureCountdownTimer);captureCountdownTimer=null;}
 }
 
 // ─── Saved ────────────────────────────────────────────────────
