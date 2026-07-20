@@ -641,6 +641,11 @@ void cmd_test_loop() {
 //  kosongkan antrian SEBELUM tiap rmt_receive() baru, bukan cuma setelah.
 // ─────────────────────────────────────────────────────────────
 void rmt_rx_clean_start() {
+  // A/B TEST HASIL: tanpa rmt_disable/enable, percobaan pertama (paling
+  // bersih) TETAP gagal baca sinyal loopback, dan percobaan berikutnya
+  // langsung balik ke "channel not in enable state" permanen. Terbukti
+  // disable/enable ini BUKAN penyebab sensor gak kebaca — dikembalikan
+  // karena tanpa ini device malah macet total lebih cepat.
   rmt_disable(rx_chan);
   rmt_enable(rx_chan);
   xQueueReset(rx_queue);
