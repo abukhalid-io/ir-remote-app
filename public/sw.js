@@ -1,5 +1,5 @@
 // ── Service Worker — IR Remote PWA ──────────────────────────
-const CACHE_NAME = 'ir-remote-v10';
+const CACHE_NAME = 'ir-remote-v11';
 const CACHE_IRDB = 'ir-remote-irdb-v1';
 
 // FIX: path dulu di-hardcode absolut dari root ("/ir_db/...") — cuma benar
