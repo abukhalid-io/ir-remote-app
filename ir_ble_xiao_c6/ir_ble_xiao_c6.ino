@@ -492,7 +492,7 @@ void cmd_test_sensor() {
   ble_send("{\"event\":\"test_sensor\",\"status\":\"start\",\"msg\":\"Menunggu sinyal... tekan tombol remote ke sensor (5 detik)\"}");
   Serial.println("[TEST] Sensor: listening 5s...");
 
-  xQueueReset(rx_queue);
+  rmt_rx_clean_start();  // FIX BUG K
   rmt_receive_config_t rcfg = {};
   rcfg.signal_range_min_ns = 1000;
   rcfg.signal_range_max_ns = 15000000;
@@ -551,7 +551,7 @@ void cmd_test_loop() {
   Serial.println("[TEST] Loopback: TX->RX");
 
   // Aktifkan RX terlebih dahulu
-  xQueueReset(rx_queue);
+  rmt_rx_clean_start();  // FIX BUG K
   rmt_receive_config_t rcfg = {};
   rcfg.signal_range_min_ns = 1000;
   rcfg.signal_range_max_ns = 15000000;
@@ -603,6 +603,33 @@ void cmd_test_loop() {
   Serial.printf("[TEST] Loopback: OK, %d symbols, first=%lu us\n", (int)ev.num_symbols, d0);
   ble_send("{\"event\":\"test_loop\",\"ok\":true,\"symbols\":" + String(ev.num_symbols) +
            ",\"msg\":\"Loopback OK! LED & sensor berfungsi (burst " + String(d0) + "us terdeteksi)\"}");
+}
+
+// ─────────────────────────────────────────────────────────────
+//  FIX BUG K: reset bersih channel RX + antrian sebelum tiap sesi
+//  receive baru (capture / test_sensor / test_loop).
+//
+//  Root cause: kalau sebuah rmt_receive() TIMEOUT tanpa pernah melihat
+//  satu edge pun (TSOP diam total, gak ada sinyal), hardware RMT tetap
+//  "armed" menunggu selamanya — gap-timeout internnya cuma jalan SETELAH
+//  edge pertama muncul, jadi kalau nol edge, gak pernah dianggap selesai.
+//  Kode lama cuma reset flag software rmt_rx_active=false lalu give up,
+//  TANPA bilang ke hardware buat berhenti. Akibatnya:
+//    1) rmt_receive() berikutnya gagal "channel not in enable state"
+//       (ESP_ERR_INVALID_STATE) karena channel masih dianggap sibuk.
+//    2) KALAU received event lama (basi, dari sesi sebelumnya atau dari
+//       gangguan lain) masih nyangkut di rx_queue (gak pernah di-reset),
+//       capture BARU langsung "berhasil" dalam hitungan milidetik dengan
+//       data yang SALAH/BASI — bukan sinyal remote yang baru ditekan.
+//       Ini yang bikin hasil capture "gak sinkron" pas direplay.
+//  Fix: disable+enable ulang channel (paksa balik ke state bersih) dan
+//  kosongkan antrian SEBELUM tiap rmt_receive() baru, bukan cuma setelah.
+// ─────────────────────────────────────────────────────────────
+void rmt_rx_clean_start() {
+  rmt_disable(rx_chan);
+  rmt_enable(rx_chan);
+  xQueueReset(rx_queue);
+  rmt_rx_active = false;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -775,17 +802,19 @@ void loop() {
 
   if (!g_capturing) return;
 
-  // Timeout capture — FIX BUG C: reset rmt_rx_active saat timeout
+  // Timeout capture — FIX BUG K: reset bersih channel+antrian saat timeout,
+  // bukan cuma flag software (lihat penjelasan di rmt_rx_clean_start())
   if (millis() - g_capture_start > CAPTURE_TIMEOUT_MS) {
-    g_capturing    = false;
-    rmt_rx_active  = false;  // FIX BUG C
+    g_capturing = false;
+    rmt_rx_clean_start();
     Serial.println("[CAP] Timeout");
     ble_send("{\"event\":\"error\",\"msg\":\"timeout, tidak ada sinyal IR\"}");
     return;
   }
 
-  // FIX BUG 3: hanya mulai receive baru kalau channel tidak sedang aktif
+  // FIX BUG 3 + FIX BUG K: mulai receive baru dengan channel/antrian bersih
   if (!rmt_rx_active) {
+    rmt_rx_clean_start();
     rmt_receive_config_t rcfg = {};
     rcfg.signal_range_min_ns = 1000;
     rcfg.signal_range_max_ns = 15000000;
