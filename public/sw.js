@@ -1,5 +1,5 @@
 // ── Service Worker — IR Remote PWA ──────────────────────────
-const CACHE_NAME = 'ir-remote-v8';
+const CACHE_NAME = 'ir-remote-v9';
 const CACHE_IRDB = 'ir-remote-irdb-v1';
 
 // FIX: path dulu di-hardcode absolut dari root ("/ir_db/...") — cuma benar
@@ -59,12 +59,32 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // Asset inti & ir_db JSON → cache-first, fallback network
+  // FIX: app shell (index.html/root/manifest) dulu cache-first — begitu
+  // ke-cache sekali, HP user SELALU pakai versi itu sampai... kapan aja,
+  // gak ada mekanisme yang memaksa refresh selama sw.js sendiri gak
+  // berubah byte-nya (dan sw.js jarang ikut ke-edit tiap kali index.html
+  // di-update). Ini akar masalah kenapa fix yang udah di-push berkali-kali
+  // "kelihatan belum jalan" di HP user — bukan fix-nya gagal, tapi App
+  // shell-nya beneran masih yang lama. Sekarang network-first: coba versi
+  // terbaru dulu tiap load (kalau online), baru fallback ke cache kalau
+  // offline. ir_db/icon tetap cache-first karena jarang berubah & besar.
   if (
     url.pathname === BASE ||
-    url.pathname.startsWith(BASE + 'ir_db/') ||
     url.pathname === BASE + 'index.html' ||
-    url.pathname === BASE + 'manifest.json' ||
+    url.pathname === BASE + 'manifest.json'
+  ) {
+    e.respondWith(
+      fetch(e.request).then(res => {
+        if (res.ok) caches.open(CACHE_NAME).then(c => c.put(e.request, res.clone()));
+        return res;
+      }).catch(() => caches.match(e.request))
+    );
+    return;
+  }
+
+  // Asset yang jarang berubah (data IR, icon, font) → cache-first tetap aman
+  if (
+    url.pathname.startsWith(BASE + 'ir_db/') ||
     url.pathname.startsWith(BASE + 'icon-') ||
     url.origin === 'https://cdn.jsdelivr.net'
   ) {
