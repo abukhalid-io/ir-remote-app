@@ -369,6 +369,7 @@ body{
       <input class="cap-input" id="capName" placeholder="signal name, e.g. TV_Power" maxlength="32" autocomplete="off" autocorrect="off">
       <button class="cap-primary" id="capBtn" onclick="startCapture()">START CAPTURE</button>
       <div class="cap-status cs-idle" id="capStatus">Point remote at sensor and press a button</div>
+      <div id="capLog"></div>
     </div>
     <div class="cap-card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:11px">
@@ -602,6 +603,7 @@ function onBleRx(e){
     saveSignal(msg.name,msg.timings,dec);
     const decStr=dec?` · ${dec.protocol} ${dec.command}`:'';
     setCapStatus('ok','✅ Captured "'+msg.name+'" — '+msg.timings.length+' timings'+decStr);
+    renderCaptureLog(msg.name,msg.timings,dec);
     setBleBusy(false);setCaptureUI(false);
   }
   else if(ev==='captured_start'){capturedChunks=[];capturedName=msg.name;setCapStatus('listen','📡 Receiving "'+msg.name+'"…');}
@@ -613,6 +615,7 @@ function onBleRx(e){
     saveSignal(n,capturedChunks,dec);
     const decStr=dec?` · ${dec.protocol} ${dec.command}`:'';
     setCapStatus('ok','✅ '+capturedChunks.length+' timings'+decStr);
+    renderCaptureLog(n,capturedChunks,dec);
     setBleBusy(false);setCaptureUI(false);
   }
   else if(ev==='done'){toast('✅ Signal sent');setBleBusy(false);}
@@ -1104,6 +1107,7 @@ async function startCapture(){
   if(bleBusy){toast('device busy');return;}
   setBleBusy(true);capturedChunks=null;
   setCaptureUI(true);
+  const logEl=document.getElementById('capLog');if(logEl)logEl.innerHTML='';
   // FIX: countdown detik-per-detik di tombol — biar SUPER jelas window
   // listening masih jalan, gak perlu tap ulang. Firmware timeout-nya
   // persis 5 detik (CAPTURE_TIMEOUT_MS), jadi hitungan ini sinkron.
@@ -1239,6 +1243,38 @@ function renderTestViz(preview){
     `<div style="font-size:10px;color:var(--text3);font-family:monospace;margin-top:9px;margin-bottom:3px">Waveform preview (${preview.length} pulses dari remote):</div>`+
     `<svg width="100%" viewBox="0 0 ${W} ${H}" style="background:#1e1a17;border-radius:6px;display:block">`+
     `<path d="${path}" fill="none" stroke="var(--clay)" stroke-width="2" stroke-linejoin="miter"/></svg>`;
+}
+
+// ─── Capture log/waveform — biar sinyal yang ke-capture bisa "dibaca" ────
+function renderCaptureLog(name,timings,decoded){
+  const el=document.getElementById('capLog');
+  if(!el)return;
+  if(!timings||!timings.length){el.innerHTML='';return;}
+  const pulses=timings.map(t=>({d:t&0x7FFF,s:(t&0x8000)?1:0}));
+  const H=40,PAD=2,HI=6,LO=32,PX_PER_US=0.02;
+  let path=`M${PAD},${LO}`,x=PAD;
+  for(const p of pulses){
+    const w=Math.max(2,Math.round(p.d*PX_PER_US));
+    if(!p.s){path+=` V${HI} H${x+w} V${LO}`;}
+    else{path+=` H${x+w}`;}
+    x+=w;
+  }
+  const totalW=x+PAD;
+  path+=` H${totalW-PAD}`;
+  const hex2s=n=>'0x'+n.toString(16).padStart(2,'0').toUpperCase();
+  const decBlock=decoded
+    ?`<div style="font-size:11px;font-family:monospace;color:var(--green);margin-top:7px">✓ Protokol dikenali: <b>${decoded.protocol}</b> — address ${decoded.address}, command ${decoded.command}</div>`+
+     `<div style="font-size:11px;font-family:monospace;color:var(--clay2);margin-top:2px">Kode hex gabungan: <b>${(decoded.address+' '+decoded.command).replace(/0x/g,'')}</b></div>`
+    :`<div style="font-size:11px;font-family:monospace;color:var(--text3);margin-top:7px">Protokol gak dikenali otomatis (tersimpan sebagai raw — tetap bisa direplay normal)</div>`;
+  const rawList=pulses.map((p,i)=>`${String(i).padStart(3,' ')}: ${p.s?'space':'mark '} ${String(p.d).padStart(5,' ')}µs  (${hex2s(p.d)})`).join('\n');
+  el.innerHTML=
+    `<div style="font-size:10px;color:var(--text3);font-family:monospace;margin-top:10px;margin-bottom:4px">📊 "${name}" — ${pulses.length} pulses ditangkap</div>`+
+    `<div style="overflow-x:auto;background:#1e1a17;border-radius:6px;padding:4px 0">`+
+    `<svg width="${totalW}" height="${H}" viewBox="0 0 ${totalW} ${H}" style="display:block;min-width:100%">`+
+    `<path d="${path}" fill="none" stroke="var(--clay)" stroke-width="2" stroke-linejoin="miter"/></svg></div>`+
+    decBlock+
+    `<details style="margin-top:7px"><summary style="font-size:10px;font-family:monospace;color:var(--clay);cursor:pointer">Lihat raw timing (${pulses.length} nilai) ▾</summary>`+
+    `<pre style="font-size:10px;font-family:monospace;color:var(--text2);background:#fff;border:1.5px solid var(--border);border-radius:8px;padding:10px;margin-top:7px;max-height:200px;overflow-y:auto;white-space:pre">${rawList}</pre></details>`;
 }
 
 // ─── Nav ──────────────────────────────────────────────────────
